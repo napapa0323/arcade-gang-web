@@ -3,3 +3,5 @@
 .phone-pair-panel.paired{border-top-color:#00e5ca}.phone-pair-panel.paired>summary{color:#00e5ca}
 
 .short-code-panel{margin:20px 0;padding:22px 12px;background:#0a0d13;border:1px solid #00e5ca;text-align:center}.short-code-panel>span{display:block;font-size:14px;color:#edf3ff}.short-code-panel output{display:block;margin:18px 0;font:700 clamp(38px,12vw,72px)/1.2 Consolas,monospace;letter-spacing:.12em;color:#00e5ca}.short-code-panel small{display:block;color:#b5c7e4;font-size:12px}.short-code-panel button{margin-top:18px;min-height:44px;border-radius:0}
+
+.phone-connection-strip{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px;margin-bottom:10px;border-left:3px solid #00e5ca;background:#121d29}.phone-connection-strip strong{display:block;color:#00e5ca;font-size:13px;line-height:1.6}.phone-connection-strip small{display:block;color:#b8c8df;font-size:12px;margin-top:5px}.phone-connection-strip button{flex-shrink:0;min-height:44px;border-radius:0;font-size:12px}.phone-connection-strip .error{color:#ffc7ce}
