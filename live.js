@@ -19,6 +19,22 @@
  window.addEventListener('storage',e=>{if(e.key!==key||channel)return;try{receive({state:JSON.parse(e.newValue),at:0});}catch{}});
  function stop(){timeline?.kill();timeline=null;gsap.killTweensOf('.confetti i');gsap.set('.overlay',{autoAlpha:0});gsap.set('.intro-copy,.intro-index,.intro-slash,.winner-copy,.winner-stripe,.opening-content,.opening-counter,.opening-bars i',{clearProps:'transform,opacity,visibility'});busy=false;}
  function tone(type='hit'){if(!sound||audience)return;try{audio??=new (window.AudioContext||window.webkitAudioContext)();audio.resume();const t=audio.currentTime,osc=audio.createOscillator(),gain=audio.createGain();osc.type=type==='win'?'triangle':'sine';osc.frequency.setValueAtTime(type==='win'?660:150,t);osc.frequency.exponentialRampToValueAtTime(type==='win'?990:45,t+.16);gain.gain.setValueAtTime(.16,t);gain.gain.exponentialRampToValueAtTime(.001,t+.32);osc.connect(gain);gain.connect(audio.destination);osc.start(t);osc.stop(t+.35);}catch{}}
+
+ let breakMinutes=5;try{const n=Number(localStorage.getItem('arcade-rest-minutes-v1'));if(localStorage.getItem('arcade-rest-minutes-v1')!==null&&Number.isInteger(n)&&n>=0&&n<=120)breakMinutes=n;}catch{}
+ $('#break-minutes').value=String(breakMinutes);let restAudio=null,restAlerted=null;
+ function unlockRestAudio(){if(audience)return;try{restAudio??=new(window.AudioContext||window.webkitAudioContext)();restAudio.resume().catch(()=>{});}catch{}}
+ document.addEventListener('pointerdown',unlockRestAudio,{once:true});
+ function ringRest(){if(audience||!$('#break-alert').checked)return;try{unlockRestAudio();if(!restAudio)return;for(let i=0;i<3;i++){const o=restAudio.createOscillator(),g=restAudio.createGain(),t=restAudio.currentTime+i*.35;o.frequency.value=i===2?1046:784;g.gain.setValueAtTime(.12,t);g.gain.exponentialRampToValueAtTime(.001,t+.25);o.connect(g);g.connect(restAudio.destination);o.start(t);o.stop(t+.26);}}catch{}}
+ function updateRestTimer(waiting,round){
+  const out=$('#break-clock'),note=$('#break-note');$('#restart-break').disabled=audience||!waiting||round===1;
+  if(!waiting||round===1){out.hidden=true;note.textContent='대진표 확인 후 시작 버튼을 눌러주세요.';return;}
+  out.hidden=false;state.restBreaks??={};if(!state.restBreaks[round]&&!audience){state.restBreaks[round]={endsAt:Date.now()+breakMinutes*60000};persist('rest');}
+  const timer=state.restBreaks[round];if(!timer){out.textContent='—';note.textContent='휴식 시간 동기화 중';return;}const left=Math.max(0,Math.ceil((timer.endsAt-Date.now())/1000));out.textContent=String(Math.floor(left/60)).padStart(2,'0')+':'+String(left%60).padStart(2,'0');out.classList.toggle('finished',left===0);note.textContent=left?'휴식 중 · 종료 후 운영자가 시작합니다.':'휴식 종료 · 출전 준비해주세요. 시작 버튼을 눌러 진행합니다.';
+  const id=round+':'+timer.endsAt;if(left===0&&restAlerted!==id){restAlerted=id;if(!audience){notify('휴식 시간이 끝났습니다. 다음 라운드를 시작해주세요.');ringRest();}}
+ }
+ $('#break-minutes').onchange=()=>{const n=Number($('#break-minutes').value);if(!Number.isInteger(n)||n<0||n>120){$('#break-minutes').value=String(breakMinutes);return;}breakMinutes=n;try{localStorage.setItem('arcade-rest-minutes-v1',String(n));}catch{}notify('휴식 '+n+'분 설정 · 다음 휴식부터 적용, 현재 휴식은 다시 시작 버튼으로 적용');unlockRestAudio();};
+ $('#restart-break').onclick=()=>{if(audience||M.isRoundStarted(state))return;const round=M.getSchedule(state)[state.index].round;if(round===1)return;state.restBreaks??={};state.restBreaks[round]={endsAt:Date.now()+breakMinutes*60000};persist('rest');render();};
+ const restTicker=setInterval(()=>{const m=M.getSchedule(state)[state.index];updateRestTimer(!M.isRoundStarted(state),m.round);},250);window.addEventListener('pagehide',()=>clearInterval(restTicker));
  function allSourceLabel(schedule,index){return schedule[index].heat+'조 승자';}
  function renderTree(){
   const schedule=M.getSchedule(state),current=schedule[state.index],round=current.round;
@@ -35,7 +51,7 @@
  function renderScenes(){
   const all=M.getSchedule(state),m=all[state.index],wave=all.filter(x=>x.round===m.round&&x.wave===m.wave),waiting=!M.isRoundStarted(state),final=m.round===4,champion=final&&state.winners[state.index]!==undefined;
   document.body.classList.toggle('round-pause',waiting);document.body.classList.toggle('full-overview',!!state.overview);document.body.classList.toggle('compact-field',!state.overview&&!final&&wave.length>1&&wave.length<=3);document.body.classList.toggle('focus-field',!state.overview&&!final&&wave.length===1);document.body.classList.toggle('grand-final',final);document.body.classList.toggle('has-champion',champion&&phase!=='winner');
-  $('#round-break').hidden=!waiting;$('#break-title').textContent=final?'최종 결승 · 잠시 후 시작':`${m.round}R 대진표 · 휴식 시간`;$('#start-round').textContent=final?'최종 결승 시작 ▶':`${m.round}R 시작 ▶`;$('#start-round').disabled=audience||busy;$('#show-full-tree').hidden=final;
+  updateRestTimer(waiting,m.round);$('#round-break').hidden=!waiting;$('#break-title').textContent=final?'최종 결승 · 잠시 후 시작':`${m.round}R 대진표 · 휴식 시간`;$('#start-round').textContent=final?'최종 결승 시작 ▶':`${m.round}R 시작 ▶`;$('#start-round').disabled=audience||busy;$('#show-full-tree').hidden=final;
   $('#showdown-eyebrow').textContent=final?'THREE FINALISTS. ONE CROWN.':`${m.round}R / FINAL QUALIFIER`;$('#showdown-title').textContent=final?'GRAND FINAL':'결승 진출 결정전';$('#showdown-subtitle').textContent=final?'모든 질주의 끝, 단 한 명의 챔피언.':'결승행 티켓은 단 한 장.';$('#showdown-foot').textContent=waiting?'휴식 중 · 운영자의 시작을 기다려주세요.':phase==='racing'?'승자를 선택하세요. 마지막 한 번의 질주.':'선수 소개가 끝나면 경기가 시작됩니다.';
   $('#showdown-lineup').innerHTML=m.lanes.map((name,i)=>`<article class="showdown-racer ${!name?'vacant':''}" data-current-lane="${i}" role="button" tabindex="${!audience&&phase==='racing'&&name?0:-1}" aria-label="${esc(name??'빈 레인')} 승자로 선택"><span class="showdown-seed">${final?(i+1)+'R 진출자':'LANE 0'+(i+1)}</span><div class="showdown-number">0${i+1}</div><h3 title="${esc(name??'')}">${name?esc(short(name)):'빈 레인'}</h3><small>${final?'FINALIST':'ARCADE GANG RACER'}</small></article>`).join('');
   $('#champion-name').textContent=champion?short(m.lanes[state.winners[state.index]]):'—';$('#replay-celebration').disabled=audience||busy||!champion;
