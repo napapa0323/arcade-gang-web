@@ -4,3 +4,5 @@
 
 /* Keep QR's white quiet zone, remove the surrounding document-sized white panel. */
 #offer-qr{background:#0a0d13;border:1px solid #36445a;padding:24px;min-height:260px;color:#b2c2db}#offer-qr canvas{width:100%;max-width:380px;height:auto;box-shadow:0 0 0 1px #46556a}#offer-qr p{color:#b2c2db}@media(max-width:720px){#offer-qr{padding:16px}}
+
+.embedded-link .link-header,.embedded-link .link-title,.embedded-link #open-race{display:none}.embedded-link main{padding-top:16px}.embedded-link .link-description{margin-top:0}
