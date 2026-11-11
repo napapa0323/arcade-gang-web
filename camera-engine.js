@@ -1,0 +1,33 @@
+(function(root){
+ 'use strict';
+ const defaults={laps:3,rotation:1,minLapMs:1200,gapMs:600,pixelThreshold:26,areaThreshold:.075,direction:'any',regions:[{cx:1/6,cy:.5,w:.17,h:.32},{cx:.5,cy:.5,w:.17,h:.32},{cx:5/6,cy:.5,w:.17,h:.32}]};
+ function validate(settings){if(!Number.isInteger(settings.laps)||settings.laps<1||settings.laps>30)throw Error('바퀴 수는 1~30 사이로 설정해주세요.');if(![-1,0,1].includes(settings.rotation))throw Error('레인 이동 설정이 올바르지 않습니다.');if(!Number.isFinite(settings.minLapMs)||settings.minLapMs<400||settings.minLapMs>30000)throw Error('최소 랩 간격을 확인해주세요.');}
+ class LapSession{
+  constructor(settings,participants,{source='camera'}={}){validate(settings);if(!Array.isArray(participants)||!participants.length||participants.length>3||new Set(participants.map(p=>p.lane)).size!==participants.length||participants.some(p=>!Number.isInteger(p.lane)||p.lane<0||p.lane>2))throw Error('측정할 출발 레인을 선택해주세요.');this.settings={...settings};this.id=root.crypto?.randomUUID?.()??Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);this.source=source;this.createdAt=new Date().toISOString();this.status='armed';this.startedAt=null;this.lastFrameAt=null;this.issues=[];this.log=[];this.cars=participants.map(p=>({name:String(p.name||`${p.lane+1}레인 선수`).slice(0,40),lane:p.lane,start:null,last:null,laps:[],status:'waiting'}));}
+  expected(car){return(car.lane+this.settings.rotation*(car.laps.length+1)+300)%3;}
+  tick(at){if(!Number.isFinite(at)||at<0)return;if(this.lastFrameAt!==null&&at<this.lastFrameAt)return;this.lastFrameAt=at;if(this.startedAt!==null&&at-this.startedAt>Math.min(900,this.settings.minLapMs*.7)){for(const c of this.cars)if(c.status==='waiting')c.status='not-started';}this.finish();}
+  pass(lane,at){if(!['armed','running'].includes(this.status)||!Number.isInteger(lane)||lane<0||lane>2||!Number.isFinite(at)||at<0)return{kind:'ignored'};if(this.lastFrameAt!==null&&at<this.lastFrameAt-100)return{kind:'ignored',reason:'late-frame'};this.tick(at);const candidates=this.cars.filter(c=>c.status==='running'&&this.expected(c)===lane&&at-c.last>=this.settings.minLapMs);const waiting=this.cars.find(c=>c.lane===lane&&c.status==='waiting');
+   if(candidates.length>1||candidates.length&&waiting){this.status='review';this.issues.push({type:'ambiguous',lane,at,message:'동일 레인에 두 차량 후보가 있어 기록을 확정하지 않았습니다.'});this.log.push({lane,at,type:'ambiguous'});return{kind:'review'};}
+   if(candidates.length===1){const c=candidates[0],lap=at-c.last;c.laps.push(lap);c.last=at;this.log.push({lane,at,type:'lap',startLane:c.lane,lap:c.laps.length,lapMs:lap});if(c.laps.length>=this.settings.laps)c.status='finished';this.finish();return{kind:c.status==='finished'?'finished':'lap',car:c};}
+   if(waiting&&(this.startedAt===null||at-this.startedAt<=Math.min(900,this.settings.minLapMs*.7))){if(this.startedAt===null)this.startedAt=at;this.status='running';waiting.start=at;waiting.last=at;waiting.status='running';this.log.push({lane,at,type:'start',startLane:waiting.lane});return{kind:'start',car:waiting};}
+   this.log.push({lane,at,type:'unmatched'});return{kind:'ignored',reason:'unmatched'};
+  }
+  finish(){if(!['armed','running'].includes(this.status))return;if(this.cars.some(c=>c.status==='finished')&&this.cars.every(c=>c.status==='finished'||c.status==='not-started'))this.status='complete';}
+  interrupt(reason='운영자가 계측을 종료했습니다.'){if(['complete','review','stopped'].includes(this.status))return;this.status='stopped';this.issues.push({type:'interrupted',message:reason,at:this.lastFrameAt});}
+  record(){return{id:this.id,createdAt:this.createdAt,source:this.source,status:this.status,basis:'first-pass-zero',settings:{laps:this.settings.laps,rotation:this.settings.rotation,minLapMs:this.settings.minLapMs},lastFrameAt:this.lastFrameAt,cars:this.cars.map(c=>({...c,laps:c.laps.slice(),totalMs:c.status==='finished'?c.last-c.start:null,bestMs:c.laps.length?Math.min(...c.laps):null})),issues:this.issues.slice(),log:this.log.slice()};}
+ }
+ class MotionDetector{
+  constructor(settings){this.settings=settings;this.bg=null;this.width=0;this.height=0;this.samples=0;this.tracks=Array.from({length:3},()=>({active:false,clear:0,firstAt:null,firstY:null,lastHit:-Infinity,fired:false}));}
+  learn(gray,width,height){if(!this.bg||width!==this.width||height!==this.height){this.bg=Float32Array.from(gray);this.width=width;this.height=height;this.samples=1;return;}const a=1/Math.min(++this.samples,30);for(let i=0;i<gray.length;i++)this.bg[i]+=a*(gray[i]-this.bg[i]);}
+  process(gray,width,height,at){if(!this.bg||width!==this.width||height!==this.height){this.learn(gray,width,height);return{hits:[],levels:[0,0,0]};}let offset=0;for(let i=0;i<gray.length;i++)offset+=gray[i]-this.bg[i];offset/=gray.length;let broad=0;for(let i=0;i<gray.length;i++)if(Math.abs(gray[i]-this.bg[i]-offset)>this.settings.pixelThreshold)broad++;if(broad/gray.length>.45)return{hits:[],levels:[0,0,0],unstable:true};
+   const hits=[],levels=[];
+   this.settings.regions.forEach((r,lane)=>{const x0=Math.max(0,Math.floor((r.cx-r.w/2)*width)),x1=Math.min(width,Math.ceil((r.cx+r.w/2)*width)),y0=Math.max(0,Math.floor((r.cy-r.h/2)*height)),y1=Math.min(height,Math.ceil((r.cy+r.h/2)*height)),counts=[0,0,0,0,0],totals=[0,0,0,0,0];let changed=0,sumY=0,total=0;
+    for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){const i=y*width+x,k=Math.min(4,Math.floor((y-y0)*5/(y1-y0)));total++;totals[k]++;if(Math.abs(gray[i]-this.bg[i]-offset)>this.settings.pixelThreshold){changed++;sumY+=y;counts[k]++;}}
+    const ratio=changed/Math.max(1,total),local=Math.max(...counts.map((n,i)=>n/Math.max(1,totals[i]))),on=changed>=8&&(ratio>=this.settings.areaThreshold||local>=Math.max(.15,this.settings.areaThreshold*2.5)),cy=changed?((sumY/changed)-y0)/Math.max(1,y1-y0):.5,t=this.tracks[lane];levels.push(Math.min(1,Math.max(ratio,local/2.5)));
+    if(on){if(!t.active){t.active=true;t.clear=0;t.fired=false;t.firstAt=at;t.firstY=cy;}t.clear=0;let accepted=this.settings.direction==='any';if(this.settings.direction==='down')accepted=cy-t.firstY>=.13;if(this.settings.direction==='up')accepted=t.firstY-cy>=.13;if(!t.fired&&accepted&&at-t.lastHit>=this.settings.gapMs){t.fired=true;t.lastHit=at;hits.push({lane,at});}}
+    else{if(t.active&&++t.clear>=2){t.active=false;t.fired=false;}if(!t.active)for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){const i=y*width+x;this.bg[i]+=.012*(gray[i]-this.bg[i]);}}
+   });return{hits,levels,unstable:false};
+  }
+ }
+ const api={defaults,LapSession,MotionDetector};root.CameraTiming=api;if(typeof module!=='undefined')module.exports=api;
+})(typeof globalThis!=='undefined'?globalThis:this);
